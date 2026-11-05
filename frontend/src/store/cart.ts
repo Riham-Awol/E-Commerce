@@ -31,6 +31,11 @@ export const COUPONS: Record<string, number> = {
   WELCOME5: 5,
 };
 
+/** Minimum subtotal for a coupon to apply (mirrors the backend seed data). */
+export const COUPON_MIN_SUBTOTAL: Record<string, number> = {
+  WHOLESALE15: 100,
+};
+
 export const useCart = create<CartState>()(
   persist(
     (set) => ({
@@ -79,18 +84,23 @@ export const useCart = create<CartState>()(
   ),
 );
 
-export function cartTotals(items: Line[], couponCode: string | null) {
+export function cartTotals(
+  items: Line[],
+  couponCode: string | null,
+  fulfilment: "delivery" | "pickup" = "delivery",
+) {
   const active = items.filter((i) => !i.savedForLater);
   const subtotal = active.reduce(
     (sum, i) =>
       sum + discountedPrice(i.product.wholesalePrice, i.product.discountPercent) * i.quantity,
     0,
   );
-  const couponPct = couponCode ? COUPONS[couponCode] ?? 0 : 0;
+  const couponPct =
+    couponCode && subtotal >= (COUPON_MIN_SUBTOTAL[couponCode] ?? 0) ? COUPONS[couponCode] ?? 0 : 0;
   const couponAmount = +(subtotal * (couponPct / 100)).toFixed(2);
   const afterCoupon = subtotal - couponAmount;
   const tax = +(afterCoupon * 0.08).toFixed(2);
-  const deliveryFee = afterCoupon > 250 || afterCoupon === 0 ? 0 : 12.5;
+  const deliveryFee = fulfilment === "pickup" || afterCoupon > 250 || afterCoupon === 0 ? 0 : 12.5;
   const total = +(afterCoupon + tax + deliveryFee).toFixed(2);
   const itemCount = active.reduce((n, i) => n + i.quantity, 0);
   return { subtotal, couponAmount, couponPct, tax, deliveryFee, total, itemCount };

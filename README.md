@@ -53,16 +53,16 @@ npm install
 npm run dev          # http://localhost:3000
 ```
 The storefront ships with local seed data, so it runs and looks complete
-without the backend. Point it at the API by setting `NEXT_PUBLIC_API_URL`.
+without the backend. To connect it to the API, create `frontend/.env.local`
+with `BACKEND_URL=http://localhost:4000`.
 
 ### Backend
 ```bash
 cd backend
 npm install
 cp .env.example .env         # configure MySQL + JWT secrets
-mysql -u root -p < src/db/schema.sql
-npm run seed                 # load demo catalogue
-npm run dev                  # http://localhost:4000
+# create an empty MySQL database named bevsupply first
+npm run dev                  # http://localhost:4000 (creates tables + loads the catalogue on first start)
 ```
 
 ## Feature Map
@@ -81,17 +81,41 @@ See `frontend/README.md` and `backend/README.md` for module-level detail.
 
 ## Deployment
 
-**Frontend (Vercel)** — import the repo on vercel.com, set *Root Directory* to
-`frontend`, keep the Next.js defaults and deploy. No env vars are needed: the
-storefront runs on its built-in seed data.
+Three free services: **Vercel** (website), **Render** (API) and **Aiven**
+(MySQL database). Deploy in this order.
 
-**Backend (optional, e.g. Render + a managed MySQL)** — root directory
-`backend`, build `npm install && npm run build`, start `npm start`. Required
-env vars in production: `NODE_ENV=production`, `JWT_ACCESS_SECRET`,
-`JWT_REFRESH_SECRET`, `CLIENT_ORIGIN` (your Vercel URL), plus the `DB_*`
-settings. Load `src/db/schema.sql` into the database, then run `npm run seed`
-once. Health check: `/api/health`.
+### 1. Database — Aiven (free MySQL)
+1. Sign up at aiven.io → *Create service* → **MySQL** → *Free plan*.
+2. When it's running, open the service's *Overview* and note **Host, Port,
+   User, Password** and **Database name** (`defaultdb`).
 
-> Note: the storefront UI is not yet wired to the API — login, register and
-> checkout are front-end demos. Hosting the backend is only useful once that
-> integration is built.
+### 2. API — Render
+1. Sign up at render.com with GitHub → **New → Blueprint** → pick this repo.
+   Render reads `render.yaml` and creates the `bevsupply-api` service.
+2. Fill in `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` from
+   Aiven, and choose an `ADMIN_PASSWORD` for the staff accounts.
+3. Deploy. On first start the API creates the tables and loads the catalogue
+   automatically. Check `https://<your-service>.onrender.com/api/health`.
+
+> If the connection fails with a certificate error, either paste Aiven's
+> *CA certificate* into a `DB_SSL_CA` variable or set
+> `DB_SSL_REJECT_UNAUTHORIZED=false`.
+
+### 3. Website — Vercel
+1. Sign up at vercel.com with GitHub → **Add New → Project** → import this repo.
+2. Set **Root Directory** to `frontend`.
+3. Add the environment variable `BACKEND_URL` = your Render URL
+   (e.g. `https://bevsupply-api.onrender.com`).
+4. Deploy. The site proxies `/api/*` to the backend, so no CORS setup is needed.
+
+Without `BACKEND_URL` the website still deploys and runs as a demo on its
+built-in data.
+
+### Notes
+- Render's free plan sleeps after 15 min idle; the first request after that
+  takes ~1 minute. Product pages fall back to built-in data while it wakes.
+- Demo customer login: `customer@bevsupply.com` / `Password123`.
+- Staff logins (`admin@`, `warehouse@`, `finance@bevsupply.com`) use your
+  `ADMIN_PASSWORD`.
+- Online card payments are not connected yet: orders are saved as
+  *payment pending*.

@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   User, Package, FileText, Heart, Ticket, Star, Bell, LifeBuoy,
-  MapPin, Settings, Gift, Download, RefreshCw, LogOut,
+  MapPin, Settings, Gift, Download, RefreshCw, LogOut, Loader2, AlertCircle,
 } from "lucide-react";
 import { demoOrders } from "@/data/orders";
 import { products } from "@/data/products";
@@ -12,6 +14,9 @@ import { useCart } from "@/store/cart";
 import { cn, formatCurrency } from "@/lib/utils";
 import { OrderTimeline } from "@/components/OrderTimeline";
 import { ProductCard } from "@/components/ProductCard";
+import { apiEnabled, fetchMe, fetchMyOrders, logout, type ApiOrder } from "@/lib/api";
+import { useAuth } from "@/store/auth";
+import type { Order, OrderStatus } from "@/types";
 
 const nav = [
   { id: "overview", label: "Overview", icon: User },
@@ -33,17 +38,71 @@ const statusLabels: Record<string, string> = {
   delivered: "Delivered", cancelled: "Cancelled", returned: "Returned", refunded: "Refunded",
 };
 
+function toOrder(o: ApiOrder): Order {
+  const date = o.created_at.slice(0, 10);
+  return {
+    id: String(o.id),
+    reference: o.reference,
+    date,
+    status: o.status as OrderStatus,
+    items: o.items.map((i) => ({ name: i.product_name, qty: i.quantity, price: Number(i.unit_price) })),
+    subtotal: Number(o.subtotal),
+    tax: Number(o.tax),
+    deliveryFee: Number(o.delivery_fee),
+    total: Number(o.total),
+    paymentMethod: o.payment_method ?? "—",
+    deliveryAddress: o.delivery_address ?? (o.fulfilment === "pickup" ? "Warehouse pickup" : "—"),
+    estimatedDelivery:
+      o.status === "delivered" ? "Delivered" : o.delivery_date ? o.delivery_date.slice(0, 10) : "To be scheduled",
+  };
+}
+
 export function Dashboard() {
   const [tab, setTab] = useState<(typeof nav)[number]["id"]>("overview");
   const wishlistIds = useCart((s) => s.wishlist);
   const add = useCart((s) => s.add);
   const wishlistProducts = products.filter((p) => wishlistIds.includes(p.id));
+  const router = useRouter();
+
+  const authUser = useAuth((s) => s.user);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const user = mounted ? authUser : null;
+  const live = apiEnabled && Boolean(user);
+
+  const meQuery = useQuery({ queryKey: ["me", user?.id], queryFn: fetchMe, enabled: live });
+  const ordersQuery = useQuery({ queryKey: ["orders", user?.id], queryFn: fetchMyOrders, enabled: live });
+
+  // Signed out (or session expired) while connected to the API → go sign in.
+  useEffect(() => {
+    if (apiEnabled && mounted && !authUser) router.replace("/login?next=/dashboard");
+  }, [mounted, authUser, router]);
+
+  if (apiEnabled && (!mounted || !user)) {
+    return (
+      <div className="grid place-items-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const orders: Order[] = live ? (ordersQuery.data ?? []).map(toOrder) : demoOrders;
+  const displayName = live ? meQuery.data?.name ?? user!.name : "Metro Foods Ltd";
+  const rewardPoints = live ? meQuery.data?.reward_points ?? 0 : 2140;
+  const lifetimeSpend = orders.reduce((sum, o) => sum + o.total, 0);
+  const trackedOrder =
+    orders.find((o) => !["delivered", "cancelled", "returned", "refunded"].includes(o.status)) ?? orders[0];
+
+  async function signOut() {
+    if (apiEnabled) await logout().catch(() => undefined);
+    router.push("/login");
+  }
 
   const stats = [
-    { label: "Total orders", value: "38", icon: Package },
-    { label: "Reward points", value: "2,140", icon: Gift },
+    { label: "Total orders", value: live ? String(orders.length) : "38", icon: Package },
+    { label: "Reward points", value: rewardPoints.toLocaleString(), icon: Gift },
     { label: "Active coupons", value: "3", icon: Ticket },
-    { label: "Lifetime spend", value: "$14.2k", icon: FileText },
+    { label: "Lifetime spend", value: live ? formatCurrency(lifetimeSpend) : "$14.2k", icon: FileText },
   ];
 
   return (
@@ -54,10 +113,12 @@ export function Dashboard() {
         <aside>
           <div className="card p-4">
             <div className="mb-4 flex items-center gap-3 border-b border-secondary/10 pb-4">
-              <span className="grid h-11 w-11 place-items-center rounded-full bg-primary text-lg font-bold text-white">M</span>
+              <span className="grid h-11 w-11 place-items-center rounded-full bg-primary text-lg font-bold text-white">
+                {displayName.charAt(0).toUpperCase()}
+              </span>
               <div className="min-w-0">
-                <p className="truncate font-semibold text-secondary">Metro Foods Ltd</p>
-                <p className="truncate text-xs text-secondary/50">Gold member</p>
+                <p className="truncate font-semibold text-secondary">{displayName}</p>
+                <p className="truncate text-xs text-secondary/50">{live ? user!.email : "Gold member"}</p>
               </div>
             </div>
             <nav className="space-y-0.5">
@@ -73,9 +134,9 @@ export function Dashboard() {
                   <n.icon className="h-4 w-4" /> {n.label}
                 </button>
               ))}
-              <Link href="/login" className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-secondary/70 hover:bg-canvas">
+              <button onClick={signOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-secondary/70 hover:bg-canvas">
                 <LogOut className="h-4 w-4" /> Sign out
-              </Link>
+              </button>
             </nav>
           </div>
         </aside>
@@ -95,19 +156,26 @@ export function Dashboard() {
               </div>
               <div className="card p-6">
                 <h2 className="mb-4 font-display text-lg font-bold text-secondary">Active order tracking</h2>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="font-semibold text-secondary">{demoOrders[0].reference}</p>
-                  <span className="chip bg-accent/20 text-accent-dark">{statusLabels[demoOrders[0].status]}</span>
-                </div>
-                <OrderTimeline status={demoOrders[0].status} />
-                <p className="mt-4 text-sm text-secondary/60">Estimated delivery: <span className="font-semibold text-secondary">{demoOrders[0].estimatedDelivery}</span></p>
+                {trackedOrder ? (
+                  <>
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="font-semibold text-secondary">{trackedOrder.reference}</p>
+                      <span className="chip bg-accent/20 text-accent-dark">{statusLabels[trackedOrder.status]}</span>
+                    </div>
+                    <OrderTimeline status={trackedOrder.status} />
+                    <p className="mt-4 text-sm text-secondary/60">Estimated delivery: <span className="font-semibold text-secondary">{trackedOrder.estimatedDelivery}</span></p>
+                  </>
+                ) : (
+                  <OrdersState loading={ordersQuery.isLoading} error={ordersQuery.error} />
+                )}
               </div>
             </div>
           )}
 
           {tab === "orders" && (
             <div className="space-y-4">
-              {demoOrders.map((o) => (
+              {orders.length === 0 && <OrdersState loading={ordersQuery.isLoading} error={ordersQuery.error} />}
+              {orders.map((o) => (
                 <div key={o.id} className="card p-6">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -120,8 +188,8 @@ export function Dashboard() {
                   </div>
                   <OrderTimeline status={o.status} />
                   <div className="mt-4 space-y-1 border-t border-secondary/10 pt-4 text-sm">
-                    {o.items.map((it) => (
-                      <div key={it.name} className="flex justify-between text-secondary/70">
+                    {o.items.map((it, idx) => (
+                      <div key={`${it.name}-${idx}`} className="flex justify-between text-secondary/70">
                         <span>{it.qty} × {it.name}</span>
                         <span>{formatCurrency(it.qty * it.price)}</span>
                       </div>
@@ -153,12 +221,21 @@ export function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {demoOrders.map((o) => (
+                  {orders.length === 0 && (
+                    <tr><td colSpan={5} className="px-5 py-8 text-center text-secondary/50">No invoices yet.</td></tr>
+                  )}
+                  {orders.map((o) => (
                     <tr key={o.id} className="border-t border-secondary/10">
                       <td className="px-5 py-3 font-semibold text-secondary">INV-{o.reference.slice(4)}</td>
                       <td className="px-5 py-3 text-secondary/60">{o.date}</td>
                       <td className="px-5 py-3 font-semibold text-secondary">{formatCurrency(o.total)}</td>
-                      <td className="px-5 py-3"><span className="chip bg-success/10 text-success">Paid</span></td>
+                      <td className="px-5 py-3">
+                        {live && ordersQuery.data?.find((x) => String(x.id) === o.id)?.payment_status !== "paid" ? (
+                          <span className="chip bg-accent/20 text-accent-dark">Pending</span>
+                        ) : (
+                          <span className="chip bg-success/10 text-success">Paid</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3 text-right">
                         <button className="btn-ghost"><Download className="h-4 w-4" /> PDF</button>
                       </td>
@@ -259,6 +336,29 @@ export function Dashboard() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function OrdersState({ loading, error }: { loading: boolean; error: unknown }) {
+  if (loading) {
+    return (
+      <div className="grid place-items-center py-10">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl bg-primary/10 p-4 text-sm text-primary">
+        <AlertCircle className="h-4 w-4" /> {(error as Error).message}
+      </div>
+    );
+  }
+  return (
+    <div className="py-6 text-center">
+      <p className="text-secondary/60">You haven&apos;t placed any orders yet.</p>
+      <Link href="/products" className="btn-primary mt-4">Start shopping</Link>
     </div>
   );
 }

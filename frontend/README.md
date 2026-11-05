@@ -14,8 +14,11 @@ npm run build      # production build
 ```
 
 The storefront ships with local seed data (`src/data`), so every page renders
-without a backend. Set `NEXT_PUBLIC_API_URL` (see `.env.example`) to point the
-API client (`src/lib/api.ts`) at the Express backend.
+without a backend. Set `BACKEND_URL` (see `.env.example`) to connect it to the
+Express API: `/api/*` is then proxied to the backend, and login, registration,
+checkout, order history and live prices/stock use real data. The API client is
+`src/lib/api.ts`, live catalogue data is in `src/lib/catalogue.ts`, and the
+session lives in `src/store/auth.ts`.
 
 ## Structure
 
@@ -60,4 +63,5 @@ corners. Reusable button/card/input classes are in `src/app/globals.css`.
   method (card/Stripe, PayPal, bank transfer, mobile money, COD, wallet).
 - Customer dashboard: order-tracking timeline, invoices, wishlist, addresses,
   coupons, reward points, notifications, support and settings.
-- Auth screens (email + Google) wired for the backend JWT flow.
+- Email sign-in / registration against the backend JWT flow (access token in
+  memory, httpOnly refresh cookie), protected checkout and dashboard.

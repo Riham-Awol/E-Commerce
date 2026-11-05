@@ -1,13 +1,16 @@
 {
   "name": "bevsupply-backend",
   "version": "1.0.0",
-  "description": "BevSupply — Beverage distribution B2B REST API (Express + MySQL)",
+  "description": "BevSupply \u2014 Beverage distribution B2B REST API (Express + MySQL)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "seed": "ts-node-dev --transpile-only src/db/seed.ts",
+    "db:migrate": "node dist/db/migrate.js",
+    "db:seed": "node dist/db/seed.js",
+    "db:setup": "npm run db:migrate && npm run db:seed",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -33,5 +36,8 @@
     "@types/node": "^20.14.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

@@ -11,6 +11,10 @@ export const env = {
     .map((o) => o.trim().replace(/\/$/, ""))
     .filter(Boolean),
   db: {
+    url: process.env.DATABASE_URL || process.env.MYSQL_URL || "",
+    ssl: process.env.DB_SSL === "true",
+    sslRejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false",
+    sslCa: process.env.DB_SSL_CA ?? "",
     host: process.env.DB_HOST ?? "localhost",
     port: Number(process.env.DB_PORT ?? 3306),
     user: process.env.DB_USER ?? "root",
@@ -27,7 +31,7 @@ export const env = {
 };
 
 if (env.isProd) {
-  const missing = ["JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "CLIENT_ORIGIN"].filter(
+  const missing = ["JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET"].filter(
     (k) => !process.env[k],
   );
   if (missing.length) {

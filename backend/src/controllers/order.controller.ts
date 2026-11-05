@@ -5,7 +5,18 @@ import { pool } from "../config/db";
 import { ApiError } from "../utils/ApiError";
 
 export const createOrderSchema = z.object({
-  items: z.array(z.object({ productId: z.number(), quantity: z.number().int().positive() })).min(1),
+  // Each line identifies its product by numeric id or by slug (the storefront uses slugs).
+  items: z
+    .array(
+      z
+        .object({
+          productId: z.number().optional(),
+          slug: z.string().optional(),
+          quantity: z.number().int().positive(),
+        })
+        .refine((i) => i.productId !== undefined || i.slug, "productId or slug is required"),
+    )
+    .min(1),
   paymentMethod: z.string().min(1),
   fulfilment: z.enum(["delivery", "pickup"]).default("delivery"),
   deliveryAddress: z.string().optional(),
@@ -16,6 +27,7 @@ export const createOrderSchema = z.object({
 
 interface ProductRow extends RowDataPacket {
   id: number;
+  slug: string;
   name: string;
   wholesale_price: number;
   discount_percent: number;
@@ -32,29 +44,35 @@ export async function createOrder(req: Request, res: Response) {
   try {
     await conn.beginTransaction();
 
-    const ids = body.items.map((i) => i.productId);
+    const ids = body.items.map((i) => i.productId ?? -1);
+    const slugs = body.items.map((i) => i.slug ?? "");
     const [products] = await conn.query<ProductRow[]>(
-      "SELECT id, name, wholesale_price, discount_percent, stock, min_order_qty FROM products WHERE id IN (?) FOR UPDATE",
-      [ids],
+      `SELECT id, slug, name, wholesale_price, discount_percent, stock, min_order_qty
+       FROM products WHERE id IN (?) OR slug IN (?) FOR UPDATE`,
+      [ids, slugs],
     );
     const byId = new Map(products.map((p) => [p.id, p]));
+    const bySlug = new Map(products.map((p) => [p.slug, p]));
 
     let subtotal = 0;
     const lines: { product: ProductRow; qty: number; unitPrice: number }[] = [];
 
     for (const item of body.items) {
-      const product = byId.get(item.productId);
-      if (!product) throw ApiError.badRequest(`Product ${item.productId} not found`);
+      const product =
+        item.productId !== undefined ? byId.get(item.productId) : bySlug.get(item.slug!);
+      if (!product) throw ApiError.badRequest(`Product ${item.productId ?? item.slug} not found`);
       if (item.quantity < product.min_order_qty) {
         throw ApiError.badRequest(`${product.name}: minimum order is ${product.min_order_qty}`);
       }
       if (product.stock < item.quantity) {
         throw ApiError.conflict(`${product.name}: only ${product.stock} in stock`);
       }
-      const unitPrice = +(product.wholesale_price * (1 - product.discount_percent / 100)).toFixed(2);
+      const unitPrice = +(Number(product.wholesale_price) * (1 - Number(product.discount_percent) / 100)).toFixed(2);
       subtotal += unitPrice * item.quantity;
       lines.push({ product, qty: item.quantity, unitPrice });
     }
+
+    subtotal = +subtotal.toFixed(2);
 
     // Coupon
     let discount = 0;
@@ -119,13 +137,24 @@ export async function createOrder(req: Request, res: Response) {
   }
 }
 
-/** GET /api/orders — the authenticated customer's orders. */
+/** GET /api/orders — the authenticated customer's orders, with line items. */
 export async function listMyOrders(req: Request, res: Response) {
   const [orders] = await pool.query<RowDataPacket[]>(
-    "SELECT * FROM orders WHERE user_id = :userId ORDER BY created_at DESC",
+    "SELECT * FROM orders WHERE user_id = :userId ORDER BY created_at DESC, id DESC",
     { userId: req.user!.sub },
   );
-  res.json({ success: true, data: orders });
+  if (orders.length === 0) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+  const [items] = await pool.query<RowDataPacket[]>(
+    "SELECT order_id, product_name, unit_price, quantity FROM order_items WHERE order_id IN (?)",
+    [orders.map((o) => o.id)],
+  );
+  res.json({
+    success: true,
+    data: orders.map((o) => ({ ...o, items: items.filter((i) => i.order_id === o.id) })),
+  });
 }
 
 /** GET /api/orders/:reference — a single order with its line items. */

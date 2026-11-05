@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   MapPin, Truck, Store, CreditCard, CheckCircle2, Wallet, Landmark,
-  Banknote, Smartphone, Package,
+  Banknote, Smartphone, Package, AlertCircle, Loader2, LogIn,
 } from "lucide-react";
 import { useCart, cartTotals } from "@/store/cart";
 import { discountedPrice, formatCurrency, cn } from "@/lib/utils";
+import { apiEnabled, placeOrder, type PlacedOrder } from "@/lib/api";
+import { useAuth } from "@/store/auth";
 
 const steps = ["Information", "Delivery", "Payment", "Review"] as const;
 
@@ -23,15 +25,92 @@ const paymentMethods = [
 
 export function CheckoutView() {
   const { items, coupon, clear } = useCart();
-  const totals = cartTotals(items, coupon);
   const [step, setStep] = useState(0);
   const [fulfilment, setFulfilment] = useState<"delivery" | "pickup">("delivery");
+  const totals = cartTotals(items, coupon, fulfilment);
   const [payment, setPayment] = useState("card");
   const [placed, setPlaced] = useState(false);
+  const [order, setOrder] = useState<PlacedOrder | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    name: "", email: "", phone: "", taxId: "",
+    address: "", city: "", postalCode: "", date: "", window: "Morning (8am – 12pm)", notes: "",
+  });
+  const set = (key: keyof typeof form) => (value: string) => setForm((f) => ({ ...f, [key]: value }));
   const active = items.filter((i) => !i.savedForLater);
 
+  const authUser = useAuth((s) => s.user);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const user = mounted ? authUser : null;
+
+  // Prefill contact details from the signed-in account.
+  useEffect(() => {
+    if (user) setForm((f) => ({ ...f, name: f.name || user.name, email: f.email || user.email }));
+  }, [user]);
+
+  async function submitOrder() {
+    if (!apiEnabled) {
+      clear();
+      setPlaced(true);
+      return;
+    }
+    if (fulfilment === "delivery" && !form.address.trim()) {
+      setError("Please enter a delivery address.");
+      setStep(1);
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const deliveryAddress =
+        fulfilment === "delivery"
+          ? [form.address, form.city, form.postalCode].map((v) => v.trim()).filter(Boolean).join(", ")
+          : undefined;
+      const notes = [
+        fulfilment === "delivery" ? `Window: ${form.window}` : "Warehouse pickup",
+        form.phone && `Phone: ${form.phone}`,
+        form.taxId && `Tax ID: ${form.taxId}`,
+        form.notes,
+      ].filter(Boolean).join("\n");
+      const result = await placeOrder({
+        items: active.map((l) => ({ slug: l.product.slug, quantity: l.quantity })),
+        paymentMethod: paymentMethods.find((m) => m.id === payment)?.label ?? payment,
+        fulfilment,
+        deliveryAddress,
+        deliveryDate: fulfilment === "delivery" && form.date ? form.date : undefined,
+        notes: notes || undefined,
+        couponCode: coupon ?? undefined,
+      });
+      setOrder(result);
+      clear();
+      setPlaced(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (placed) {
-    return <OrderConfirmed total={totals.total} payment={payment} />;
+    return <OrderConfirmed total={order?.total ?? totals.total} payment={payment} reference={order?.reference} live={Boolean(order)} />;
+  }
+
+  if (apiEnabled && mounted && !user && active.length > 0) {
+    return (
+      <div className="card mx-auto grid max-w-lg place-items-center p-10 text-center">
+        <LogIn className="h-12 w-12 text-primary" />
+        <h1 className="mt-4 font-display text-2xl font-bold text-secondary">Sign in to check out</h1>
+        <p className="mt-2 text-secondary/60">
+          Your cart is saved. Sign in or create a free trade account to place your order and track delivery.
+        </p>
+        <div className="mt-6 flex gap-3">
+          <Link href="/login?next=/checkout" className="btn-primary">Sign in</Link>
+          <Link href="/register?next=/checkout" className="btn-outline">Create account</Link>
+        </div>
+      </div>
+    );
   }
 
   if (active.length === 0) {
@@ -73,10 +152,10 @@ export function CheckoutView() {
           {step === 0 && (
             <Section title="Customer information">
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Business / full name" placeholder="Metro Foods Ltd" />
-                <Field label="Contact email" placeholder="orders@business.com" type="email" />
-                <Field label="Phone" placeholder="+1 800 555 0142" />
-                <Field label="Tax / VAT number" placeholder="Optional" />
+                <Field label="Business / full name" placeholder="Metro Foods Ltd" value={form.name} onChange={set("name")} />
+                <Field label="Contact email" placeholder="orders@business.com" type="email" value={form.email} onChange={set("email")} />
+                <Field label="Phone" placeholder="+1 800 555 0142" value={form.phone} onChange={set("phone")} />
+                <Field label="Tax / VAT number" placeholder="Optional" value={form.taxId} onChange={set("taxId")} />
               </div>
             </Section>
           )}
@@ -89,13 +168,13 @@ export function CheckoutView() {
               </div>
               {fulfilment === "delivery" && (
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <Field label="Delivery address" placeholder="14 Market Street" full />
-                  <Field label="City" placeholder="Harbor City" />
-                  <Field label="Postal code" placeholder="10234" />
-                  <Field label="Delivery date" type="date" />
+                  <Field label="Delivery address" placeholder="14 Market Street" full value={form.address} onChange={set("address")} />
+                  <Field label="City" placeholder="Harbor City" value={form.city} onChange={set("city")} />
+                  <Field label="Postal code" placeholder="10234" value={form.postalCode} onChange={set("postalCode")} />
+                  <Field label="Delivery date" type="date" value={form.date} onChange={set("date")} />
                   <div>
                     <label className="label">Delivery window</label>
-                    <select className="input">
+                    <select className="input" value={form.window} onChange={(e) => set("window")(e.target.value)}>
                       <option>Morning (8am – 12pm)</option>
                       <option>Afternoon (12pm – 5pm)</option>
                       <option>Evening (5pm – 8pm)</option>
@@ -103,7 +182,7 @@ export function CheckoutView() {
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">Order notes</label>
-                    <textarea className="input min-h-[80px]" placeholder="Loading dock instructions, preferred entrance…" />
+                    <textarea className="input min-h-[80px]" placeholder="Loading dock instructions, preferred entrance…" value={form.notes} onChange={(e) => set("notes")(e.target.value)} />
                   </div>
                 </div>
               )}
@@ -117,7 +196,13 @@ export function CheckoutView() {
                   <Choice key={m.id} active={payment === m.id} onClick={() => setPayment(m.id)} icon={m.icon} title={m.label} note={m.note} />
                 ))}
               </div>
-              {payment === "card" && (
+              {apiEnabled && (
+                <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-secondary/70">
+                  No payment is taken online yet. Your order is placed as <strong>payment pending</strong> and
+                  our team will contact you to complete payment with your chosen method.
+                </p>
+              )}
+              {!apiEnabled && payment === "card" && (
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <Field label="Card number" placeholder="4242 4242 4242 4242" full />
                   <Field label="Expiry" placeholder="MM / YY" />
@@ -146,6 +231,12 @@ export function CheckoutView() {
             </Section>
           )}
 
+          {error && (
+            <div role="alert" className="flex items-start gap-2 rounded-xl bg-primary/10 p-4 text-sm text-primary">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+            </div>
+          )}
+
           <div className="flex justify-between">
             <button
               onClick={() => setStep((s) => Math.max(0, s - 1))}
@@ -157,7 +248,8 @@ export function CheckoutView() {
             {step < steps.length - 1 ? (
               <button onClick={() => setStep((s) => s + 1)} className="btn-primary">Continue</button>
             ) : (
-              <button onClick={() => { clear(); setPlaced(true); }} className="btn-primary px-8">
+              <button onClick={submitOrder} disabled={submitting} className="btn-primary px-8 disabled:opacity-60">
+                {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 Place order · {formatCurrency(totals.total)}
               </button>
             )}
@@ -190,8 +282,11 @@ export function CheckoutView() {
   );
 }
 
-function OrderConfirmed({ total, payment }: { total: number; payment: string }) {
-  const ref = `BVS-${Math.floor(100000 + Math.random() * 899999)}`;
+function OrderConfirmed({
+  total, payment, reference, live,
+}: { total: number; payment: string; reference?: string; live: boolean }) {
+  const [demoRef] = useState(() => `BVS-${Math.floor(100000 + Math.random() * 899999)}`);
+  const ref = reference ?? demoRef;
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mx-auto max-w-lg p-10 text-center">
       <CheckCircle2 className="mx-auto h-16 w-16 text-success" />
@@ -201,7 +296,12 @@ function OrderConfirmed({ total, payment }: { total: number; payment: string }) 
         <span className="font-semibold text-secondary">{formatCurrency(total)}</span> is confirmed.
       </p>
       <p className="mt-1 text-sm text-secondary/50">
-        {payment === "cod" ? "Pay cash on delivery." : "Payment received."} We'll email your invoice and delivery updates.
+        {payment === "cod"
+          ? "Pay cash on delivery."
+          : live
+            ? "Payment is pending. We'll contact you to complete payment."
+            : "Payment received."}{" "}
+        We'll email your invoice and delivery updates.
       </p>
       <div className="mt-6 flex justify-center gap-3">
         <Link href="/dashboard" className="btn-primary">Track order</Link>
@@ -220,11 +320,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Field({ label, placeholder, type = "text", full }: { label: string; placeholder?: string; type?: string; full?: boolean }) {
+function Field({
+  label, placeholder, type = "text", full, value, onChange,
+}: {
+  label: string; placeholder?: string; type?: string; full?: boolean;
+  value?: string; onChange?: (value: string) => void;
+}) {
   return (
     <div className={full ? "sm:col-span-2" : ""}>
       <label className="label">{label}</label>
-      <input type={type} placeholder={placeholder} className="input" />
+      <input
+        type={type}
+        placeholder={placeholder}
+        className="input"
+        value={value}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+      />
     </div>
   );
 }
