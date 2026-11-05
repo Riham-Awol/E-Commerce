@@ -5,7 +5,11 @@ dotenv.config();
 export const env = {
   port: Number(process.env.PORT ?? 4000),
   nodeEnv: process.env.NODE_ENV ?? "development",
-  clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:3000",
+  // Comma-separated list of allowed frontend origins.
+  clientOrigins: (process.env.CLIENT_ORIGIN ?? "http://localhost:3000")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean),
   db: {
     host: process.env.DB_HOST ?? "localhost",
     port: Number(process.env.DB_PORT ?? 3306),
@@ -21,3 +25,12 @@ export const env = {
   },
   isProd: process.env.NODE_ENV === "production",
 };
+
+if (env.isProd) {
+  const missing = ["JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "CLIENT_ORIGIN"].filter(
+    (k) => !process.env[k],
+  );
+  if (missing.length) {
+    throw new Error(`Missing required environment variables in production: ${missing.join(", ")}`);
+  }
+}

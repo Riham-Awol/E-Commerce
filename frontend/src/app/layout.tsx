@@ -19,6 +19,7 @@ export const metadata: Metadata = {
   description:
     "B2B beverage distribution & wholesale e-commerce. Browse thousands of drinks, order in bulk, pay online and track deliveries.",
   keywords: ["beverage wholesale", "drinks distribution", "B2B e-commerce", "bulk drinks"],
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

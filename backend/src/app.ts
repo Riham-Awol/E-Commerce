@@ -15,8 +15,11 @@ import catalogRoutes from "./routes/catalog.routes";
 export function createApp() {
   const app = express();
 
+  // Behind a hosting proxy (Render, Railway, Fly…): needed for secure cookies
+  // and correct client IPs in the rate limiter.
+  app.set("trust proxy", 1);
   app.use(helmet());
-  app.use(cors({ origin: env.clientOrigin, credentials: true }));
+  app.use(cors({ origin: env.clientOrigins, credentials: true }));
   app.use(express.json());
   app.use(cookieParser());
   app.use(morgan(env.isProd ? "combined" : "dev"));

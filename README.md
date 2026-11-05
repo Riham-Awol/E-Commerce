@@ -78,3 +78,20 @@ npm run dev                  # http://localhost:4000
   deliveries, promotions/coupons.
 
 See `frontend/README.md` and `backend/README.md` for module-level detail.
+
+## Deployment
+
+**Frontend (Vercel)** — import the repo on vercel.com, set *Root Directory* to
+`frontend`, keep the Next.js defaults and deploy. No env vars are needed: the
+storefront runs on its built-in seed data.
+
+**Backend (optional, e.g. Render + a managed MySQL)** — root directory
+`backend`, build `npm install && npm run build`, start `npm start`. Required
+env vars in production: `NODE_ENV=production`, `JWT_ACCESS_SECRET`,
+`JWT_REFRESH_SECRET`, `CLIENT_ORIGIN` (your Vercel URL), plus the `DB_*`
+settings. Load `src/db/schema.sql` into the database, then run `npm run seed`
+once. Health check: `/api/health`.
+
+> Note: the storefront UI is not yet wired to the API — login, register and
+> checkout are front-end demos. Hosting the backend is only useful once that
+> integration is built.
