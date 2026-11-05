@@ -60,7 +60,9 @@ corners. Reusable button/card/input classes are in `src/app/globals.css`.
 - Cart with quantity control, save-for-later, coupons and live totals
   (subtotal, tax, zone-based delivery fee).
 - Multi-step checkout with delivery/pickup, delivery windows and every payment
-  method (card/Stripe, PayPal, bank transfer, mobile money, COD, wallet).
+  method (card/Stripe, PayPal, bank transfer, mobile money, COD, wallet). Card
+  payments redirect to Stripe Checkout and return to `/checkout/success` or
+  `/checkout/cancelled`; unpaid orders show **Pay now** in the dashboard.
 - Customer dashboard: order-tracking timeline, invoices, wishlist, addresses,
   coupons, reward points, notifications, support and settings.
 - Email sign-in / registration against the backend JWT flow (access token in

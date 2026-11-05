@@ -111,11 +111,40 @@ Three free services: **Vercel** (website), **Render** (API) and **Aiven**
 Without `BACKEND_URL` the website still deploys and runs as a demo on its
 built-in data.
 
+### 4. Card payments — Stripe (optional)
+Customers pay on Stripe's hosted payment page, so card details never touch
+your servers. Until Stripe is configured, the card option is simply hidden and
+the other payment methods still work.
+
+1. Sign up at stripe.com. Stay in **Test mode** for now (toggle at the top).
+2. *Developers → API keys*: copy the **Secret key** (`sk_test_…`) into
+   `STRIPE_SECRET_KEY` on Render.
+3. Set `SITE_URL` on Render to your Vercel address
+   (e.g. `https://bevsupply.vercel.app`).
+4. *Developers → Webhooks → Add endpoint*:
+   - URL: `https://<your-service>.onrender.com/api/payments/webhook`
+   - Events: `checkout.session.completed`,
+     `checkout.session.async_payment_succeeded`, `checkout.session.expired`
+   - Copy the endpoint's **Signing secret** (`whsec_…`) into
+     `STRIPE_WEBHOOK_SECRET` on Render.
+5. Redeploy the Render service, then place an order and pay with the test card
+   `4242 4242 4242 4242` (any future date, any CVC).
+6. To take real money: activate your Stripe account, switch to **Live mode**,
+   and repeat steps 2 and 4 with the live key and a live webhook.
+
+How it works: an order is created as *payment pending*, then the customer is
+sent to Stripe. When payment succeeds the order becomes *paid / confirmed*
+(confirmed both when the customer returns and via the webhook, in case they
+close the tab). Unpaid card orders are cancelled after 30 minutes and their
+stock is released (this needs the webhook). Customers can retry from the
+cancelled page or with **Pay now** in *My account → Orders*.
+
 ### Notes
 - Render's free plan sleeps after 15 min idle; the first request after that
   takes ~1 minute. Product pages fall back to built-in data while it wakes.
 - Demo customer login: `customer@bevsupply.com` / `Password123`.
 - Staff logins (`admin@`, `warehouse@`, `finance@bevsupply.com`) use your
   `ADMIN_PASSWORD`.
-- Online card payments are not connected yet: orders are saved as
-  *payment pending*.
+- Payment methods other than card (bank transfer, PayPal, mobile money, cash
+  on delivery, wallet) are recorded on the order as *payment pending* for your
+  team to collect.

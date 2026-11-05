@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   User, Package, FileText, Heart, Ticket, Star, Bell, LifeBuoy,
-  MapPin, Settings, Gift, Download, RefreshCw, LogOut, Loader2, AlertCircle,
+  MapPin, Settings, Gift, Download, RefreshCw, LogOut, Loader2, AlertCircle, CreditCard,
 } from "lucide-react";
 import { demoOrders } from "@/data/orders";
 import { products } from "@/data/products";
@@ -14,7 +14,9 @@ import { useCart } from "@/store/cart";
 import { cn, formatCurrency } from "@/lib/utils";
 import { OrderTimeline } from "@/components/OrderTimeline";
 import { ProductCard } from "@/components/ProductCard";
-import { apiEnabled, fetchMe, fetchMyOrders, logout, type ApiOrder } from "@/lib/api";
+import {
+  apiEnabled, fetchMe, fetchMyOrders, fetchPaymentConfig, logout, startCardPayment, type ApiOrder,
+} from "@/lib/api";
 import { useAuth } from "@/store/auth";
 import type { Order, OrderStatus } from "@/types";
 
@@ -51,6 +53,7 @@ function toOrder(o: ApiOrder): Order {
     deliveryFee: Number(o.delivery_fee),
     total: Number(o.total),
     paymentMethod: o.payment_method ?? "—",
+    paymentStatus: o.payment_status as Order["paymentStatus"],
     deliveryAddress: o.delivery_address ?? (o.fulfilment === "pickup" ? "Warehouse pickup" : "—"),
     estimatedDelivery:
       o.status === "delivered" ? "Delivered" : o.delivery_date ? o.delivery_date.slice(0, 10) : "To be scheduled",
@@ -72,6 +75,20 @@ export function Dashboard() {
 
   const meQuery = useQuery({ queryKey: ["me", user?.id], queryFn: fetchMe, enabled: live });
   const ordersQuery = useQuery({ queryKey: ["orders", user?.id], queryFn: fetchMyOrders, enabled: live });
+  const { data: cardEnabled } = useQuery({ queryKey: ["payment-config"], queryFn: fetchPaymentConfig, enabled: live });
+  const [paying, setPaying] = useState<string | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
+
+  async function payNow(reference: string) {
+    setPayError(null);
+    setPaying(reference);
+    try {
+      await startCardPayment(reference);
+    } catch (err) {
+      setPayError((err as Error).message);
+      setPaying(null);
+    }
+  }
 
   // Signed out (or session expired) while connected to the API → go sign in.
   useEffect(() => {
@@ -174,6 +191,11 @@ export function Dashboard() {
 
           {tab === "orders" && (
             <div className="space-y-4">
+              {payError && (
+                <div role="alert" className="flex items-center gap-2 rounded-xl bg-primary/10 p-4 text-sm text-primary">
+                  <AlertCircle className="h-4 w-4" /> {payError}
+                </div>
+              )}
               {orders.length === 0 && <OrdersState loading={ordersQuery.isLoading} error={ordersQuery.error} />}
               {orders.map((o) => (
                 <div key={o.id} className="card p-6">
@@ -182,9 +204,21 @@ export function Dashboard() {
                       <p className="font-semibold text-secondary">{o.reference}</p>
                       <p className="text-sm text-secondary/50">{o.date} · {o.paymentMethod}</p>
                     </div>
-                    <span className={cn("chip", o.status === "delivered" ? "bg-success/10 text-success" : "bg-accent/20 text-accent-dark")}>
-                      {statusLabels[o.status]}
-                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {o.paymentStatus && (
+                        <span className={cn("chip", o.paymentStatus === "paid" ? "bg-success/10 text-success" : "bg-secondary/10 text-secondary/70")}>
+                          {o.paymentStatus === "paid" ? "Paid" : o.paymentStatus === "refunded" ? "Refunded" : "Payment pending"}
+                        </span>
+                      )}
+                      <span className={cn(
+                        "chip",
+                        o.status === "delivered" ? "bg-success/10 text-success"
+                          : o.status === "cancelled" ? "bg-primary/10 text-primary"
+                          : "bg-accent/20 text-accent-dark",
+                      )}>
+                        {statusLabels[o.status]}
+                      </span>
+                    </div>
                   </div>
                   <OrderTimeline status={o.status} />
                   <div className="mt-4 space-y-1 border-t border-secondary/10 pt-4 text-sm">
@@ -199,6 +233,12 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
+                    {live && cardEnabled && o.paymentStatus === "pending" && o.status !== "cancelled" && (
+                      <button onClick={() => payNow(o.reference)} disabled={paying !== null} className="btn-primary disabled:opacity-60">
+                        {paying === o.reference ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                        Pay now · {formatCurrency(o.total)}
+                      </button>
+                    )}
                     <button className="btn-outline"><RefreshCw className="h-4 w-4" /> Reorder</button>
                     <button className="btn-ghost"><Download className="h-4 w-4" /> Invoice</button>
                     <button className="btn-ghost">Leave review</button>
@@ -230,7 +270,7 @@ export function Dashboard() {
                       <td className="px-5 py-3 text-secondary/60">{o.date}</td>
                       <td className="px-5 py-3 font-semibold text-secondary">{formatCurrency(o.total)}</td>
                       <td className="px-5 py-3">
-                        {live && ordersQuery.data?.find((x) => String(x.id) === o.id)?.payment_status !== "paid" ? (
+                        {live && o.paymentStatus !== "paid" ? (
                           <span className="chip bg-accent/20 text-accent-dark">Pending</span>
                         ) : (
                           <span className="chip bg-success/10 text-success">Paid</span>

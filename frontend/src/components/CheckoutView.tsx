@@ -5,11 +5,14 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   MapPin, Truck, Store, CreditCard, CheckCircle2, Wallet, Landmark,
-  Banknote, Smartphone, Package, AlertCircle, Loader2, LogIn,
+  Banknote, Smartphone, Package, AlertCircle, Loader2, LogIn, ShieldCheck,
 } from "lucide-react";
 import { useCart, cartTotals } from "@/store/cart";
 import { discountedPrice, formatCurrency, cn } from "@/lib/utils";
-import { apiEnabled, placeOrder, type PlacedOrder } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import {
+  apiEnabled, placeOrder, fetchPaymentConfig, startCardPayment, type PlacedOrder,
+} from "@/lib/api";
 import { useAuth } from "@/store/auth";
 
 const steps = ["Information", "Delivery", "Payment", "Review"] as const;
@@ -33,6 +36,7 @@ export function CheckoutView() {
   const [order, setOrder] = useState<PlacedOrder | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "", email: "", phone: "", taxId: "",
     address: "", city: "", postalCode: "", date: "", window: "Morning (8am – 12pm)", notes: "",
@@ -44,6 +48,19 @@ export function CheckoutView() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const user = mounted ? authUser : null;
+
+  // Card payments are available when the backend has Stripe configured.
+  const { data: cardEnabled } = useQuery({
+    queryKey: ["payment-config"],
+    queryFn: fetchPaymentConfig,
+    enabled: apiEnabled,
+  });
+  const cardAvailable = !apiEnabled || cardEnabled === true;
+  const visibleMethods = paymentMethods.filter((m) => m.id !== "card" || cardAvailable);
+  const payWithCard = apiEnabled && cardEnabled === true && payment === "card";
+  useEffect(() => {
+    if (apiEnabled && cardEnabled === false && payment === "card") setPayment("bank");
+  }, [cardEnabled, payment]);
 
   // Prefill contact details from the signed-in account.
   useEffect(() => {
@@ -85,16 +102,36 @@ export function CheckoutView() {
       });
       setOrder(result);
       clear();
+      if (payWithCard) {
+        try {
+          // Leaves the site for Stripe's hosted payment page.
+          await startCardPayment(result.reference);
+          return;
+        } catch (err) {
+          setPaymentNotice(
+            `Your order is saved, but card payment couldn't start (${(err as Error).message}). ` +
+              "You can pay from My account → Orders.",
+          );
+        }
+      }
       setPlaced(true);
+      setSubmitting(false);
     } catch (err) {
       setError((err as Error).message);
-    } finally {
       setSubmitting(false);
     }
   }
 
   if (placed) {
-    return <OrderConfirmed total={order?.total ?? totals.total} payment={payment} reference={order?.reference} live={Boolean(order)} />;
+    return (
+      <OrderConfirmed
+        total={order?.total ?? totals.total}
+        payment={payment}
+        reference={order?.reference}
+        live={Boolean(order)}
+        notice={paymentNotice}
+      />
+    );
   }
 
   if (apiEnabled && mounted && !user && active.length > 0) {
@@ -192,14 +229,21 @@ export function CheckoutView() {
           {step === 2 && (
             <Section title="Payment method">
               <div className="grid gap-3 sm:grid-cols-2">
-                {paymentMethods.map((m) => (
+                {visibleMethods.map((m) => (
                   <Choice key={m.id} active={payment === m.id} onClick={() => setPayment(m.id)} icon={m.icon} title={m.label} note={m.note} />
                 ))}
               </div>
-              {apiEnabled && (
+              {payWithCard && (
+                <p className="mt-4 flex items-start gap-2 rounded-xl bg-canvas p-4 text-sm text-secondary/70">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                  After you place the order you&apos;ll be taken to Stripe&apos;s secure page to pay by card.
+                  BevSupply never sees your card details.
+                </p>
+              )}
+              {apiEnabled && !payWithCard && (
                 <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-secondary/70">
-                  No payment is taken online yet. Your order is placed as <strong>payment pending</strong> and
-                  our team will contact you to complete payment with your chosen method.
+                  Your order is placed as <strong>payment pending</strong> and our team will contact you to
+                  complete payment with your chosen method.
                 </p>
               )}
               {!apiEnabled && payment === "card" && (
@@ -250,7 +294,7 @@ export function CheckoutView() {
             ) : (
               <button onClick={submitOrder} disabled={submitting} className="btn-primary px-8 disabled:opacity-60">
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                Place order · {formatCurrency(totals.total)}
+                {payWithCard ? "Place order & pay" : "Place order"} · {formatCurrency(totals.total)}
               </button>
             )}
           </div>
@@ -283,8 +327,8 @@ export function CheckoutView() {
 }
 
 function OrderConfirmed({
-  total, payment, reference, live,
-}: { total: number; payment: string; reference?: string; live: boolean }) {
+  total, payment, reference, live, notice,
+}: { total: number; payment: string; reference?: string; live: boolean; notice?: string | null }) {
   const [demoRef] = useState(() => `BVS-${Math.floor(100000 + Math.random() * 899999)}`);
   const ref = reference ?? demoRef;
   return (
@@ -303,6 +347,9 @@ function OrderConfirmed({
             : "Payment received."}{" "}
         We'll email your invoice and delivery updates.
       </p>
+      {notice && (
+        <p role="alert" className="mt-4 rounded-xl bg-primary/10 p-3 text-sm text-primary">{notice}</p>
+      )}
       <div className="mt-6 flex justify-center gap-3">
         <Link href="/dashboard" className="btn-primary">Track order</Link>
         <Link href="/products" className="btn-outline">Keep shopping</Link>

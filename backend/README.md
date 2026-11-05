@@ -52,6 +52,10 @@ Demo accounts (password `Password123`; in production the staff accounts use
 | GET    | `/api/orders`                   | authenticated     | List my orders (with line items)    |
 | GET    | `/api/orders/:reference`        | owner / staff     | Order detail with line items        |
 | PATCH  | `/api/orders/:reference/status` | staff             | Advance order status                |
+| GET    | `/api/payments/config`          | public            | Whether card payments are enabled   |
+| POST   | `/api/payments/checkout-session`| owner             | Start Stripe Checkout for an order → `{ url }` |
+| POST   | `/api/payments/confirm`         | owner             | Confirm a returning Checkout session |
+| POST   | `/api/payments/webhook`         | Stripe (signed)   | `checkout.session.completed` / `async_payment_succeeded` / `expired` |
 
 ### Product query parameters
 `q`, `category`, `brand`, `supplier`, `minPrice`, `maxPrice`, `minRating`,
@@ -79,6 +83,11 @@ src/
   revocable in `refresh_tokens`).
 - `authorize(...roles)` middleware enforces RBAC; `super_admin` bypasses.
 - `helmet`, `cors` (credentialed), rate limiting on auth, Zod request validation.
-- `audit_logs` table records sensitive actions (e.g. order creation).
+- `audit_logs` table records sensitive actions (order creation, payment, expiry).
+- Card payments use Stripe Checkout (no card data touches the server). Webhooks
+  are signature-verified; payments are only accepted when the paid amount
+  matches the order total; unpaid sessions expire after 30 minutes and release
+  stock. To test locally, use the Stripe CLI:
+  `stripe listen --forward-to localhost:4000/api/payments/webhook`.
 - Orders are created inside a transaction with `SELECT … FOR UPDATE` to prevent
   overselling stock.
