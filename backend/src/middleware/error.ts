@@ -1,6 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
 import { ApiError } from "../utils/ApiError";
-import { env } from "../config/env";
 
 export function notFoundHandler(req: Request, _res: Response, next: NextFunction) {
   next(ApiError.notFound(`Route ${req.method} ${req.originalUrl} not found`));
@@ -12,8 +11,8 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   const status = isApiError ? err.status : 500;
   const message = isApiError ? err.message : "Internal server error";
 
-  if (!isApiError && !env.isProd) {
-    // Surface unexpected errors in development.
+  if (!isApiError) {
+    // Always log unexpected errors so they show up in the host's logs.
     // eslint-disable-next-line no-console
     console.error(err);
   }

@@ -192,6 +192,8 @@ CREATE TABLE orders (
   total               DECIMAL(12,2) NOT NULL,
   payment_method      VARCHAR(40),
   payment_status      ENUM('pending','paid','refunded') NOT NULL DEFAULT 'pending',
+  stripe_session_id   VARCHAR(255),
+  paid_at             DATETIME,
   fulfilment          ENUM('delivery','pickup') NOT NULL DEFAULT 'delivery',
   delivery_address    VARCHAR(255),
   delivery_date       DATE,
@@ -199,7 +201,8 @@ CREATE TABLE orders (
   created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_orders_user (user_id),
-  INDEX idx_orders_status (status)
+  INDEX idx_orders_status (status),
+  INDEX idx_orders_stripe_session (stripe_session_id)
 );
 
 CREATE TABLE order_items (

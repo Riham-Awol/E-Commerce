@@ -1,7 +1,7 @@
 {
   "name": "bevsupply-backend",
   "version": "1.0.0",
-  "description": "BevSupply \u2014 Beverage distribution B2B REST API (Express + MySQL)",
+  "description": "BevSupply — Beverage distribution B2B REST API (Express + MySQL)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
@@ -24,6 +24,7 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "mysql2": "^3.10.3",
+    "stripe": "^17.7.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

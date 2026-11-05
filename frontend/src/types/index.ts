@@ -105,6 +105,8 @@ export interface Order {
   deliveryFee: number;
   total: number;
   paymentMethod: string;
+  /** Present for orders loaded from the API. */
+  paymentStatus?: "pending" | "paid" | "refunded";
   deliveryAddress: string;
   estimatedDelivery: string;
 }

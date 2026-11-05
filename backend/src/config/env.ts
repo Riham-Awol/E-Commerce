@@ -27,6 +27,15 @@ export const env = {
     accessTtl: process.env.JWT_ACCESS_TTL ?? "15m",
     refreshTtl: process.env.JWT_REFRESH_TTL ?? "7d",
   },
+  /** Public URL of the website, used for Stripe's return links. Falls back to the request's Origin. */
+  siteUrl: (process.env.SITE_URL ?? "").replace(/\/+$/, ""),
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY ?? "",
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+    currency: (process.env.STRIPE_CURRENCY ?? "usd").toLowerCase(),
+    /** Only for local testing against stripe-mock or a fake server. */
+    apiBase: process.env.STRIPE_API_BASE ?? "",
+  },
   isProd: process.env.NODE_ENV === "production",
 };
 

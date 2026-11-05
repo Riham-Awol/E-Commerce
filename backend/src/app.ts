@@ -11,6 +11,9 @@ import authRoutes from "./routes/auth.routes";
 import productRoutes from "./routes/product.routes";
 import orderRoutes from "./routes/order.routes";
 import catalogRoutes from "./routes/catalog.routes";
+import paymentRoutes from "./routes/payment.routes";
+import { stripeWebhook } from "./controllers/payment.controller";
+import { asyncHandler } from "./utils/asyncHandler";
 
 export function createApp() {
   const app = express();
@@ -20,6 +23,9 @@ export function createApp() {
   app.set("trust proxy", 1);
   app.use(helmet());
   app.use(cors({ origin: env.clientOrigins, credentials: true }));
+  // Stripe signs the exact request bytes, so the webhook must get the raw body
+  // and is registered before the JSON parser.
+  app.post("/api/payments/webhook", express.raw({ type: "application/json" }), asyncHandler(stripeWebhook));
   app.use(express.json());
   app.use(cookieParser());
   app.use(morgan(env.isProd ? "combined" : "dev"));
@@ -43,6 +49,7 @@ export function createApp() {
   app.use("/api/auth", authRoutes);
   app.use("/api/products", productRoutes);
   app.use("/api/orders", orderRoutes);
+  app.use("/api/payments", paymentRoutes);
   app.use("/api", catalogRoutes);
 
   app.use(notFoundHandler);

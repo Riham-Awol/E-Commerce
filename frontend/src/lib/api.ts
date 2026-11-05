@@ -183,3 +183,26 @@ export interface ApiMe {
 export function fetchMe() {
   return api.get<{ user: ApiMe }>("/auth/me", { auth: true }).then((r) => r.user);
 }
+
+// ---------------------------------------------------------------------------
+// Payments (Stripe Checkout)
+// ---------------------------------------------------------------------------
+
+/** Whether the backend has Stripe configured for card payments. */
+export function fetchPaymentConfig() {
+  return api.get<{ card: boolean }>("/payments/config").then((r) => r.card);
+}
+
+/** Create a Stripe Checkout session for an order and send the browser to it. */
+export async function startCardPayment(reference: string) {
+  const { url } = await api.post<{ url: string }>("/payments/checkout-session", { reference }, { auth: true });
+  window.location.assign(url);
+}
+
+export function confirmCardPayment(sessionId: string) {
+  return api.post<{ reference: string; paid: boolean; total: number }>(
+    "/payments/confirm",
+    { sessionId },
+    { auth: true },
+  );
+}
