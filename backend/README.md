@@ -9,14 +9,22 @@ refresh tokens** and **role-based access control**.
 ```bash
 npm install
 cp .env.example .env                 # configure DB + JWT secrets
-mysql -u root -p < src/db/schema.sql # create schema
-npm run seed                         # load demo catalogue + users
 npm run dev                          # http://localhost:4000
+```
+
+On first start against an empty database the API creates the tables and loads
+the demo catalogue automatically (`AUTO_SETUP_DB`). To do it by hand:
+
+```bash
+npm run build
+npm run db:setup    # WARNING: db:migrate drops and recreates all tables
+npm run db:seed     # re-run the seed only (safe, idempotent)
 ```
 
 Health check: `GET /api/health`.
 
-Demo accounts (password `Password123`):
+Demo accounts (password `Password123`; in production the staff accounts use
+`ADMIN_PASSWORD` and are only created when it is set):
 
 | Role              | Email                       |
 |-------------------|-----------------------------|
@@ -40,8 +48,8 @@ Demo accounts (password `Password123`):
 | GET    | `/api/categories`               | public            | Categories with product counts      |
 | GET    | `/api/suppliers`                | public            | Active suppliers                    |
 | POST   | `/api/coupons/validate`         | public            | Validate a coupon against a subtotal|
-| POST   | `/api/orders`                   | authenticated     | Place an order (atomic, decrements stock) |
-| GET    | `/api/orders`                   | authenticated     | List my orders                      |
+| POST   | `/api/orders`                   | authenticated     | Place an order (atomic, decrements stock); items by `productId` or `slug` |
+| GET    | `/api/orders`                   | authenticated     | List my orders (with line items)    |
 | GET    | `/api/orders/:reference`        | owner / staff     | Order detail with line items        |
 | PATCH  | `/api/orders/:reference/status` | staff             | Advance order status                |
 

@@ -1,10 +1,11 @@
 /**
  * Seeds the BevSupply database with demo categories, suppliers, products,
- * coupons and users. Run after applying schema.sql:
- *   npm run seed
+ * coupons and users. Safe to re-run. Run after creating the tables:
+ *   npm run db:migrate && npm run db:seed   (or: npm run db:setup)
  */
 import bcrypt from "bcryptjs";
 import { pool } from "../config/db";
+import { catalogue, slugify, imageUrl } from "./catalogue";
 
 const categories = [
   ["soft-drinks", "Soft Drinks", "🥤", "#E63946"],
@@ -37,28 +38,13 @@ const suppliers = [
   ["Orient Trading", "Tea & imported", 4.4],
 ];
 
-const products = [
-  ["classic-cola-330ml", "Classic Cola 330ml Can", "FizzCo", "soft-drinks", "Atlas Wholesale", 0.9, 0.55, 10, 4200, "bestseller,offer", 1],
-  ["thunder-energy-250ml", "Thunder Energy 250ml", "Voltage", "energy-drinks", "Nova Beverages", 1.8, 1.1, 15, 2600, "bestseller,offer,imported", 1],
-  ["alpine-spring-water-500ml", "Alpine Spring Water 500ml", "PureAlp", "water", "Highland Springs", 0.6, 0.32, 0, 8800, "bestseller,wholesale", 1],
-  ["orange-sunrise-juice-1l", "Orange Sunrise Juice 1L", "GrovePress", "juice", "Orchard Direct", 2.4, 1.5, 20, 1900, "offer,new", 1],
-  ["whole-milk-1l-uht", "Whole Milk 1L UHT", "DairyGold", "milk", "Meadow Farms", 1.2, 0.78, 0, 2400, "wholesale", 0],
-  ["dark-roast-cold-brew-300ml", "Dark Roast Cold Brew 300ml", "Nightshift", "coffee", "Bean & Barrel", 2.9, 1.9, 10, 1400, "new,bestseller", 1],
-  ["green-tea-infusion-500ml", "Green Tea Infusion 500ml", "LeafLite", "tea", "Orient Trading", 1.5, 0.95, 0, 2100, "imported", 0],
-  ["golden-lager-330ml", "Golden Lager 330ml", "Hopyard", "beer", "Brewers Union", 1.4, 0.9, 12, 3600, "offer,imported", 1],
-  ["reserve-red-wine-750ml", "Reserve Red Wine 750ml", "Vallefino", "wine", "Vintage Cellars", 8.5, 5.8, 0, 640, "imported,wholesale", 1],
-  ["highland-malt-whisky-700ml", "Highland Malt Whisky 700ml", "GlenOra", "spirits", "Vintage Cellars", 24.0, 18.5, 5, 320, "imported", 0],
-  ["isotonic-sports-blue-500ml", "Isotonic Sports Blue 500ml", "Kinetix", "sports-drinks", "Nova Beverages", 1.3, 0.82, 18, 2700, "offer,bestseller", 0],
-  ["mixed-beverage-party-crate", "Mixed Beverage Party Crate", "BevSupply", "bulk-packages", "Atlas Wholesale", 39.0, 29.0, 22, 210, "offer,wholesale,bestseller", 1],
-];
-
 const coupons = [
   ["BEV10", 10, 0],
   ["WHOLESALE15", 15, 100],
   ["WELCOME5", 5, 0],
 ];
 
-async function seed() {
+export async function seed({ closePool = true } = {}) {
   const conn = await pool.getConnection();
   try {
     console.log("Seeding categories…");
@@ -71,29 +57,49 @@ async function seed() {
 
     console.log("Seeding suppliers…");
     for (const [name, category, rating] of suppliers) {
-      await conn.query("INSERT INTO suppliers (name, category, rating) VALUES (?, ?, ?)", [name, category, rating]);
+      const [[found]] = (await conn.query("SELECT id FROM suppliers WHERE name = ?", [name])) as any;
+      if (!found) {
+        await conn.query("INSERT INTO suppliers (name, category, rating) VALUES (?, ?, ?)", [name, category, rating]);
+      }
     }
 
     console.log("Seeding products…");
-    let n = 0;
-    for (const [slug, name, brand, catSlug, supName, retail, wholesale, discount, stock, tags, featured] of products) {
-      n += 1;
-      const [[cat]] = (await conn.query("SELECT id FROM categories WHERE slug = ?", [catSlug])) as any;
-      const [[sup]] = (await conn.query("SELECT id FROM suppliers WHERE name = ?", [supName])) as any;
-      const sku = `BVS-${String(n).padStart(4, "0")}`;
-      const [result]: any = await conn.query(
+    for (const [i, item] of catalogue.entries()) {
+      const [[cat]] = (await conn.query("SELECT id FROM categories WHERE slug = ?", [item.category])) as any;
+      const [[sup]] = (await conn.query("SELECT id FROM suppliers WHERE name = ?", [item.supplier])) as any;
+      const slug = slugify(item.name);
+      const sku = `BVS-${String(i + 1).padStart(4, "0")}`;
+      const barcode = `50${String(1234567 + i * 733).padStart(11, "0")}`;
+      const description =
+        `${item.name} by ${item.brand}. Distributed by BevSupply from ${item.supplier}. ` +
+        "Ideal for retail shelves, restaurants and events. Wholesale tiers and bulk pricing available.";
+      const minOrderQty = item.category === "bulk-packages" ? 1 : 6;
+      const expiry = `2027-0${1 + (i % 9)}-15`;
+      const values = [
+        slug, item.name, item.brand, cat?.id ?? null, sup?.id ?? null, sku, barcode, description,
+        item.ingredients ?? null, item.volume, item.pack, item.weight, item.origin, expiry,
+        item.retail, item.wholesale, item.discount, item.stock, minOrderQty, item.rating,
+        item.featured ? 1 : 0, item.tags.join(","),
+      ];
+      await conn.query(
         `INSERT INTO products
           (slug, name, brand, category_id, supplier_id, sku, barcode, description,
-           volume, package_size, country_of_origin, retail_price, wholesale_price,
-           discount_percent, stock, min_order_qty, rating, review_count, featured, tags)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '330ml', '24-pack', 'Imported',
-           ?, ?, ?, ?, 6, 4.6, 24, ?, ?)`,
-        [slug, name, brand, cat.id, sup.id, sku, `50${String(1234567 + n * 733).padStart(11, "0")}`,
-         `${name} distributed by BevSupply.`, retail, wholesale, discount, stock, featured, tags],
+           ingredients, volume, package_size, weight_kg, country_of_origin, expiry_date,
+           retail_price, wholesale_price, discount_percent, stock, min_order_qty, rating,
+           featured, tags)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           name = VALUES(name), brand = VALUES(brand), category_id = VALUES(category_id),
+           supplier_id = VALUES(supplier_id), retail_price = VALUES(retail_price),
+           wholesale_price = VALUES(wholesale_price), discount_percent = VALUES(discount_percent),
+           featured = VALUES(featured), tags = VALUES(tags)`,
+        values,
       );
+      const [[product]] = (await conn.query("SELECT id FROM products WHERE slug = ?", [slug])) as any;
+      await conn.query("DELETE FROM product_images WHERE product_id = ?", [product.id]);
       await conn.query(
         "INSERT INTO product_images (product_id, url, position) VALUES (?, ?, 0)",
-        [result.insertId, "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=800&q=80"],
+        [product.id, imageUrl(item.image)],
       );
     }
 
@@ -106,28 +112,44 @@ async function seed() {
     }
 
     console.log("Seeding users…");
-    const hash = await bcrypt.hash("Password123", 10);
-    const users: [string, string, string][] = [
-      ["Metro Foods Ltd", "customer@bevsupply.com", "customer"],
-      ["Warehouse Ops", "warehouse@bevsupply.com", "warehouse_manager"],
-      ["Finance Desk", "finance@bevsupply.com", "finance"],
-      ["System Admin", "admin@bevsupply.com", "super_admin"],
-    ];
-    for (const [name, email, role] of users) {
-      await conn.query(
-        "INSERT INTO users (name, email, password_hash, role, email_verified) VALUES (?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE role = VALUES(role)",
-        [name, email, hash, role],
-      );
+    // Demo customer account — handy for trying the storefront.
+    const demoHash = await bcrypt.hash("Password123", 10);
+    await conn.query(
+      "INSERT INTO users (name, email, password_hash, role, email_verified) VALUES (?, ?, ?, 'customer', 1) ON DUPLICATE KEY UPDATE role = VALUES(role)",
+      ["Metro Foods Ltd", "customer@bevsupply.com", demoHash],
+    );
+
+    // Staff accounts. In production they are only created when ADMIN_PASSWORD
+    // is set, so a live site never has staff logins with a publicly known password.
+    const isProd = process.env.NODE_ENV === "production";
+    const staffPassword = process.env.ADMIN_PASSWORD || (isProd ? "" : "Password123");
+    if (staffPassword) {
+      const staffHash = await bcrypt.hash(staffPassword, 10);
+      const staff: [string, string, string][] = [
+        ["Warehouse Ops", "warehouse@bevsupply.com", "warehouse_manager"],
+        ["Finance Desk", "finance@bevsupply.com", "finance"],
+        ["System Admin", "admin@bevsupply.com", "super_admin"],
+      ];
+      for (const [name, email, role] of staff) {
+        await conn.query(
+          "INSERT INTO users (name, email, password_hash, role, email_verified) VALUES (?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE role = VALUES(role), password_hash = VALUES(password_hash)",
+          [name, email, staffHash, role],
+        );
+      }
+    } else {
+      console.log("  (skipping staff accounts — set ADMIN_PASSWORD to create them)");
     }
 
     console.log("✔ Seed complete. Demo login: customer@bevsupply.com / Password123");
   } finally {
     conn.release();
-    await pool.end();
+    if (closePool) await pool.end();
   }
 }
 
-seed().catch((err) => {
-  console.error("Seed failed:", err);
-  process.exit(1);
-});
+if (require.main === module) {
+  seed().catch((err) => {
+    console.error("Seed failed:", err);
+    process.exit(1);
+  });
+}

@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLiveProduct } from "@/lib/catalogue";
 import { motion } from "framer-motion";
 import {
   ShoppingCart, Heart, Minus, Plus, Truck, ShieldCheck, RefreshCw,
@@ -17,8 +18,10 @@ import { ProductCard } from "@/components/ProductCard";
 const tabs = ["Description", "Specifications", "Nutrition", "Reviews", "Q&A"] as const;
 
 export function ProductDetail({
-  product, related, frequentlyBought,
+  product: staticProduct, related, frequentlyBought,
 }: { product: Product; related: Product[]; frequentlyBought: Product[] }) {
+  // Live price & stock from the API when connected.
+  const product = useLiveProduct(staticProduct);
   const add = useCart((s) => s.add);
   const toggleWishlist = useCart((s) => s.toggleWishlist);
   const wished = useCart((s) => s.wishlist.includes(product.id));
@@ -27,6 +30,11 @@ export function ProductDetail({
   const [activeImg, setActiveImg] = useState(0);
   const [tab, setTab] = useState<(typeof tabs)[number]>("Description");
   const [added, setAdded] = useState(false);
+
+  // Keep the quantity valid if live data changes the minimum order.
+  useEffect(() => {
+    setQty((q) => Math.max(q, product.minOrderQty));
+  }, [product.minOrderQty]);
 
   const price = discountedPrice(product.wholesalePrice, product.discountPercent);
   const tiers = [

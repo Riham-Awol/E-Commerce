@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SlidersHorizontal, X } from "lucide-react";
-import { products, brands, suppliers } from "@/data/products";
+import { useCatalogue } from "@/lib/catalogue";
 import { categories, categoryMap } from "@/data/categories";
 import { ProductCard } from "@/components/ProductCard";
 import { cn, discountedPrice } from "@/lib/utils";
@@ -13,6 +13,9 @@ type Sort = "relevance" | "price-asc" | "price-desc" | "rating" | "newest";
 
 export function ProductsBrowser() {
   const params = useSearchParams();
+  const { products } = useCatalogue();
+  const brands = useMemo(() => Array.from(new Set(products.map((p) => p.brand).filter(Boolean))), [products]);
+  const suppliers = useMemo(() => Array.from(new Set(products.map((p) => p.supplier).filter(Boolean))), [products]);
   const q = params.get("q")?.toLowerCase() ?? "";
   const initialCategory = params.get("category") ?? "";
   const initialTag = params.get("tag") ?? "";
@@ -59,7 +62,7 @@ export function ProductsBrowser() {
       }
     });
     return list;
-  }, [q, category, initialTag, brand, supplier, maxPrice, minRating, inStockOnly, discountOnly, sort]);
+  }, [products, q, category, initialTag, brand, supplier, maxPrice, minRating, inStockOnly, discountOnly, sort]);
 
   function toggle(list: string[], value: string, setter: (v: string[]) => void) {
     setter(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);

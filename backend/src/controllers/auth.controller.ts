@@ -30,13 +30,19 @@ interface UserRow extends RowDataPacket {
   reward_points: number;
 }
 
+// In production the storefront and API usually live on different domains
+// (e.g. Vercel + Render), so the refresh cookie must be cross-site.
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: env.isProd,
+  sameSite: (env.isProd ? "none" : "lax") as "none" | "lax",
+};
+
 function issueTokens(res: Response, payload: TokenPayload) {
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
   res.cookie("refresh_token", refreshToken, {
-    httpOnly: true,
-    secure: env.isProd,
-    sameSite: "lax",
+    ...refreshCookieOptions,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
   return { accessToken, refreshToken };
@@ -118,7 +124,7 @@ export async function refresh(req: Request, res: Response) {
 export async function logout(req: Request, res: Response) {
   const token = req.cookies?.refresh_token as string | undefined;
   if (token) await pool.query("DELETE FROM refresh_tokens WHERE token = :token", { token });
-  res.clearCookie("refresh_token");
+  res.clearCookie("refresh_token", refreshCookieOptions);
   res.json({ success: true });
 }
 

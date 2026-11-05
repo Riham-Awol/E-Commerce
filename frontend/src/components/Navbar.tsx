@@ -1,17 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, ShoppingCart, Heart, User, Menu, X, Grid3x3 } from "lucide-react";
 import { useCart } from "@/store/cart";
 import { categories } from "@/data/categories";
+import { useAuth } from "@/store/auth";
 
 export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [catOpen, setCatOpen] = useState(false);
   const [query, setQuery] = useState("");
   const router = useRouter();
+  const authUser = useAuth((s) => s.user);
+  // The signed-in user is read from localStorage, so only show it after mount
+  // to keep server and client markup identical.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const user = mounted ? authUser : null;
 
   const items = useCart((s) => s.items);
   const wishlist = useCart((s) => s.wishlist);
@@ -92,7 +99,7 @@ export function Navbar() {
                 </span>
               )}
             </Link>
-            <Link href="/dashboard" className="rounded-full p-2.5 hover:bg-canvas">
+            <Link href="/dashboard" aria-label="My account" className="rounded-full p-2.5 hover:bg-canvas">
               <User className="h-5 w-5 text-secondary" />
             </Link>
             <Link href="/cart" className="relative rounded-full p-2.5 hover:bg-canvas">
@@ -103,9 +110,15 @@ export function Navbar() {
                 </span>
               )}
             </Link>
-            <Link href="/login" className="btn-primary ml-2 hidden sm:inline-flex">
-              Sign in
-            </Link>
+            {user ? (
+              <Link href="/dashboard" className="btn-outline ml-2 hidden max-w-[180px] sm:inline-flex" title={user.email}>
+                <span className="truncate">Hi, {user.name.split(" ")[0]}</span>
+              </Link>
+            ) : (
+              <Link href="/login" className="btn-primary ml-2 hidden sm:inline-flex">
+                Sign in
+              </Link>
+            )}
           </nav>
         </div>
 
@@ -147,9 +160,15 @@ export function Navbar() {
               </Link>
             ))}
           </div>
-          <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-primary mt-4 w-full">
-            Sign in
-          </Link>
+          {user ? (
+            <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="btn-outline mt-4 w-full">
+              My account
+            </Link>
+          ) : (
+            <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-primary mt-4 w-full">
+              Sign in
+            </Link>
+          )}
         </div>
       )}
     </header>

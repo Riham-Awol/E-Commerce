@@ -25,7 +25,9 @@ yarn-error.log*
 # misc
 .DS_Store
 *.pem
-coverage/
+/coverage/
+/frontend/coverage/
+/backend/coverage/
 .vscode/
 .idea/
 .turbo/
